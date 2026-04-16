@@ -2,6 +2,22 @@ import { ShieldCheck, Lock, Monitor, Sun, Moon } from 'lucide-react';
 
 export type TabType = 'Text' | 'JSON' | 'SQL' | 'Images' | 'Documents' | 'Excel' | 'Folders';
 
+interface TabDef {
+  id: TabType;
+  label: string;
+  disabled?: boolean;
+}
+
+const TABS: TabDef[] = [
+  { id: 'Text', label: 'Text' },
+  { id: 'JSON', label: 'JSON' },
+  { id: 'SQL', label: 'SQL' },
+  { id: 'Images', label: 'Images' },
+  { id: 'Documents', label: 'Documents' },
+  { id: 'Excel', label: 'Excel' },
+  { id: 'Folders', label: 'Folders' },
+];
+
 interface HeaderProps {
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
@@ -10,15 +26,7 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, theme, onThemeToggle }) => {
-  const tabs: { id: TabType; label: string; icon?: React.ReactNode; disabled?: boolean }[] = [
-    { id: 'Text', label: 'Text' },
-    { id: 'JSON', label: 'JSON' },
-    { id: 'SQL', label: 'SQL' },
-    { id: 'Images', label: 'Images' },
-    { id: 'Documents', label: 'Documents' },
-    { id: 'Excel', label: 'Excel' },
-    { id: 'Folders', label: 'Folders' },
-  ];
+  const isElectron = typeof window !== 'undefined' && !!(window as unknown as Record<string, unknown>).electron;
 
   return (
     <header className="navbar fade-in">
@@ -33,16 +41,24 @@ const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, theme, onThemeT
         </div>
 
         <nav className="navbar-tabs">
-          {tabs.map((tab) => (
+          {TABS.map((tab) => (
             <div
               key={tab.id}
               className={`navbar-tab ${activeTab === tab.id ? 'active' : ''}`}
               onClick={() => {
                 if (!tab.disabled) onTabChange(tab.id);
-                else alert(`\${tab.label} comparison is an upcoming premium feature.`);
               }}
-              title={tab.disabled ? 'Coming soon' : ''}
+              title={tab.disabled ? 'Coming soon' : tab.label}
               style={{ opacity: tab.disabled ? 0.6 : 1 }}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  if (!tab.disabled) onTabChange(tab.id);
+                }
+              }}
             >
               {tab.label}
             </div>
@@ -51,23 +67,27 @@ const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange, theme, onThemeT
       </div>
 
       <div className="navbar-right">
-        <button className="navbar-tab" onClick={onThemeToggle} title="Toggle dark/light mode" style={{ padding: '0.4rem', borderRadius: '50%' }}>
+        <button
+          className="navbar-tab"
+          onClick={onThemeToggle}
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{ padding: '0.4rem', borderRadius: '50%' }}
+          aria-label="Toggle theme"
+        >
           {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
         </button>
         
-        <div className="navbar-badge" title="No network calls are made.">
+        <div className="navbar-badge" title="All comparisons run locally in your browser. No data is sent to any server.">
           <Lock size={10} strokeWidth={3} />
           Local-Only Mode
         </div>
         
-        <a 
-          href="#" 
-          className="navbar-tab"
-          onClick={(e) => { e.preventDefault(); alert('Desktop App feature coming soon! It will allow offline folder comparisons.'); }}
-        >
-          <Monitor size={15} />
-          <span>Desktop</span>
-        </a>
+        {isElectron && (
+          <div className="navbar-tab" style={{ cursor: 'default', opacity: 0.8 }}>
+            <Monitor size={15} />
+            <span>Desktop</span>
+          </div>
+        )}
       </div>
     </header>
   );

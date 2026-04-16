@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import DiffEditor from './DiffEditor';
 import { type DiffOptions } from './Sidebar';
 import { Braces, AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -7,36 +7,43 @@ interface JsonCompareProps {
   options: DiffOptions;
 }
 
+interface ValidationResult {
+  status: 'success' | 'error';
+  message: string;
+}
+
 const JsonCompare: React.FC<JsonCompareProps> = ({ options }) => {
   const [originalValue, setOriginalValue] = useState('');
   const [modifiedValue, setModifiedValue] = useState('');
-  const [validationResult, setValidationResult] = useState<{status: string, message: string} | null>(null);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
 
-  const handleFormat = () => {
+  const handleFormat = useCallback(() => {
     let orig = originalValue;
     let mod = modifiedValue;
-    let error = '';
+    const errors: string[] = [];
 
     try {
       if (orig.trim()) orig = JSON.stringify(JSON.parse(orig), null, 2);
-    } catch (e: any) {
-      error += `Original JSON Error: ${e.message}. `;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Invalid JSON';
+      errors.push(`Original: ${message}`);
     }
 
     try {
       if (mod.trim()) mod = JSON.stringify(JSON.parse(mod), null, 2);
-    } catch (e: any) {
-      error += `Changed JSON Error: ${e.message}.`;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Invalid JSON';
+      errors.push(`Changed: ${message}`);
     }
 
-    if (error) {
-       setValidationResult({ status: 'error', message: error });
+    if (errors.length > 0) {
+       setValidationResult({ status: 'error', message: errors.join(' | ') });
     } else {
        setValidationResult({ status: 'success', message: 'Valid JSON. Formatted successfully!' });
        setOriginalValue(orig);
        setModifiedValue(mod);
     }
-  };
+  }, [originalValue, modifiedValue]);
 
   const overrideOptions = { ...options, syntax: 'json' };
 
@@ -44,11 +51,21 @@ const JsonCompare: React.FC<JsonCompareProps> = ({ options }) => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       <div style={{ padding: '0.75rem 1rem', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-          <Braces size={18} className="text-accent" /> JSON Compare & Checker
+          <Braces size={18} style={{ color: 'var(--accent)' }} /> JSON Compare & Checker
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {validationResult && (
-            <div style={{ fontSize: '0.8125rem', color: validationResult.status === 'error' ? 'var(--red)' : 'var(--green)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <div style={{ 
+              fontSize: '0.8125rem', 
+              color: validationResult.status === 'error' ? 'var(--red)' : 'var(--green)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '4px',
+              maxWidth: '500px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}>
               {validationResult.status === 'error' ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
               {validationResult.message}
             </div>
