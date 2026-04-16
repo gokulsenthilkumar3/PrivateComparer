@@ -46,7 +46,7 @@ function normalize(s: string, options?: DiffCompareOptions): string {
   if (!options) return res;
   if (options.ignoreCase) res = res.toLowerCase();
   if (options.ignoreWhitespace) res = res.replace(/\s+/g, '');
-  else if (options.trimWhitespace) res = res.trim();
+  if (options.trimWhitespace && !options.ignoreWhitespace) res = res.replace(/^\s+|\s+$/g, '');
   return res;
 }
 

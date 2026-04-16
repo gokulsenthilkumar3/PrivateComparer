@@ -816,6 +816,8 @@ select {
 }
 
 .animate-fade-in { animation: fadeIn 0.3s ease forwards; }
+.fade-in { animation: fadeIn 0.3s ease forwards; }
+.flex-grow { flex-grow: 1; }
 
 /* ─── Modal / Overlay ─────────────────────── */
 

@@ -6,23 +6,30 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1300,
     height: 900,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
-      nodeIntegration: false, // Security best practice
+      nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    titleBarStyle: 'hiddenInset', // Modern Mac look if applicable
+    titleBarStyle: 'hiddenInset',
     backgroundColor: '#0a0c10',
-    icon: path.join(__dirname, 'public/favicon.ico')
+    icon: path.join(__dirname, 'public/favicon.ico'),
+    show: false,
   });
 
-  win.loadURL(
-    isDev
-      ? 'http://localhost:5173'
-      : `file://\${path.join(__dirname, 'dist/index.html')}`
-  );
+  // Show window when ready to prevent flash of white
+  win.once('ready-to-show', () => {
+    win.show();
+  });
 
-  // Open the DevTools in dev mode
+  const appUrl = isDev
+    ? 'http://localhost:5173'
+    : 'file://' + path.join(__dirname, 'dist/index.html');
+
+  win.loadURL(appUrl);
+
   if (isDev) {
     win.webContents.openDevTools();
   }

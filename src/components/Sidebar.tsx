@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, History } from 'lucide-react';
+import { Settings, History, Trash2 } from 'lucide-react';
 import { type DiffPrecision } from '../lib/diffEngine';
 
 export interface DiffOptions {
@@ -19,6 +19,7 @@ export interface HistoryEntry {
   timestamp: number;
   originalValue: string;
   modifiedValue: string;
+  preview?: string;
 }
 
 interface SidebarProps {
@@ -28,13 +29,45 @@ interface SidebarProps {
   onRestore: (orig: string, mod: string) => void;
 }
 
+interface ToggleSwitchProps {
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+}
+
+const ToggleSwitch: React.FC<ToggleSwitchProps> = ({ label, checked, onChange }) => (
+  <label className="sidebar-row">
+    <span>{label}</span>
+    <div 
+      className={`toggle ${checked ? 'active' : ''}`}
+      onClick={onChange}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onChange();
+        }
+      }}
+    >
+      <div className="toggle-knob" />
+    </div>
+  </label>
+);
+
 const Sidebar: React.FC<SidebarProps> = ({ options, setOptions, collapsed, onRestore }) => {
   const [activeTab, setActiveTab] = React.useState<'tools'|'history'>('tools');
   const [history, setHistory] = React.useState<HistoryEntry[]>([]);
 
   React.useEffect(() => {
     const loadHistory = () => {
-      setHistory(JSON.parse(localStorage.getItem('diff-history') || '[]'));
+      try {
+        setHistory(JSON.parse(localStorage.getItem('diff-history') || '[]'));
+      } catch {
+        setHistory([]);
+      }
     };
     loadHistory();
     window.addEventListener('history-updated', loadHistory);
@@ -45,6 +78,35 @@ const Sidebar: React.FC<SidebarProps> = ({ options, setOptions, collapsed, onRes
 
   const updateOption = <K extends keyof DiffOptions>(key: K, value: DiffOptions[K]) => {
     setOptions(prev => ({ ...prev, [key]: value }));
+  };
+
+  const clearHistory = () => {
+    localStorage.removeItem('diff-history');
+    setHistory([]);
+    window.dispatchEvent(new Event('history-updated'));
+  };
+
+  const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = history.filter(h => h.id !== id);
+    localStorage.setItem('diff-history', JSON.stringify(updated));
+    setHistory(updated);
+    window.dispatchEvent(new Event('history-updated'));
+  };
+
+  const formatTime = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
   };
 
   return (
@@ -62,131 +124,113 @@ const Sidebar: React.FC<SidebarProps> = ({ options, setOptions, collapsed, onRes
             onClick={() => setActiveTab('history')}
           >
             <History size={14} /> History
+            {history.length > 0 && (
+              <span style={{ marginLeft: '4px', fontSize: '0.625rem', background: 'var(--accent-dim)', color: 'var(--accent)', padding: '1px 5px', borderRadius: '999px', fontWeight: 700 }}>
+                {history.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
       <div style={{ display: activeTab === 'tools' ? 'block' : 'none' }}>
         <div className="sidebar-section">
-        <label className="sidebar-row">
-          <span>Real-time editor</span>
-          <div 
-            className={`toggle ${options.realTime ? 'active' : ''}`}
-            onClick={() => updateOption('realTime', !options.realTime)}
-          >
-            <div className="toggle-knob" />
-          </div>
-        </label>
-        <label className="sidebar-row">
-          <span>Hide unchanged lines</span>
-          <div 
-            className={`toggle ${options.hideUnchanged ? 'active' : ''}`}
-            onClick={() => updateOption('hideUnchanged', !options.hideUnchanged)}
-          >
-            <div className="toggle-knob" />
-          </div>
-        </label>
-        <label className="sidebar-row">
-          <span>Disable line wrap</span>
-          <div 
-            className={`toggle ${options.disableWrap ? 'active' : ''}`}
-            onClick={() => updateOption('disableWrap', !options.disableWrap)}
-          >
-            <div className="toggle-knob" />
-          </div>
-        </label>
-      </div>
-
-      <div className="sidebar-section">
-        <div className="sidebar-section-title">Layout</div>
-        <div className="segmented">
-          <button 
-            className={`segmented-btn ${options.layout === 'split' ? 'active' : ''}`}
-            onClick={() => updateOption('layout', 'split')}
-          >
-            Split
-          </button>
-          <button 
-            className={`segmented-btn ${options.layout === 'unified' ? 'active' : ''}`}
-            onClick={() => updateOption('layout', 'unified')}
-          >
-            Unified
-          </button>
+          <ToggleSwitch label="Real-time editor" checked={options.realTime} onChange={() => updateOption('realTime', !options.realTime)} />
+          <ToggleSwitch label="Hide unchanged lines" checked={options.hideUnchanged} onChange={() => updateOption('hideUnchanged', !options.hideUnchanged)} />
+          <ToggleSwitch label="Disable line wrap" checked={options.disableWrap} onChange={() => updateOption('disableWrap', !options.disableWrap)} />
         </div>
-      </div>
 
-      <div className="sidebar-section">
-        <div className="sidebar-section-title">Diff precision</div>
-        <div className="segmented">
-          <button 
-            className={`segmented-btn ${options.precision === 'word' ? 'active' : ''}`}
-            onClick={() => updateOption('precision', 'word')}
-          >
-            Word
-          </button>
-          <button 
-            className={`segmented-btn ${options.precision === 'character' ? 'active' : ''}`}
-            onClick={() => updateOption('precision', 'character')}
-          >
-            Character
-          </button>
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Layout</div>
+          <div className="segmented" role="radiogroup" aria-label="Layout">
+            <button 
+              className={`segmented-btn ${options.layout === 'split' ? 'active' : ''}`}
+              onClick={() => updateOption('layout', 'split')}
+              role="radio"
+              aria-checked={options.layout === 'split'}
+            >
+              Split
+            </button>
+            <button 
+              className={`segmented-btn ${options.layout === 'unified' ? 'active' : ''}`}
+              onClick={() => updateOption('layout', 'unified')}
+              role="radio"
+              aria-checked={options.layout === 'unified'}
+            >
+              Unified
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="sidebar-section" style={{ borderBottom: 'none' }}>
-        <div className="sidebar-section-title">Text transformations</div>
-        
-        <label className="sidebar-row">
-          <span>Ignore case</span>
-          <div 
-            className={`toggle ${options.ignoreCase ? 'active' : ''}`}
-            onClick={() => updateOption('ignoreCase', !options.ignoreCase)}
-          >
-            <div className="toggle-knob" />
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">Diff precision</div>
+          <div className="segmented" role="radiogroup" aria-label="Diff precision">
+            <button 
+              className={`segmented-btn ${options.precision === 'word' ? 'active' : ''}`}
+              onClick={() => updateOption('precision', 'word')}
+              role="radio"
+              aria-checked={options.precision === 'word'}
+            >
+              Word
+            </button>
+            <button 
+              className={`segmented-btn ${options.precision === 'character' ? 'active' : ''}`}
+              onClick={() => updateOption('precision', 'character')}
+              role="radio"
+              aria-checked={options.precision === 'character'}
+            >
+              Character
+            </button>
           </div>
-        </label>
-        
-        <label className="sidebar-row">
-          <span>Ignore whitespace</span>
-          <div 
-            className={`toggle ${options.ignoreWhitespace ? 'active' : ''}`}
-            onClick={() => updateOption('ignoreWhitespace', !options.ignoreWhitespace)}
-          >
-            <div className="toggle-knob" />
-          </div>
-        </label>
+        </div>
 
-        <label className="sidebar-row">
-          <span>Trim whitespace</span>
-          <div 
-            className={`toggle ${options.trimWhitespace ? 'active' : ''}`}
-            onClick={() => updateOption('trimWhitespace', !options.trimWhitespace)}
-          >
-            <div className="toggle-knob" />
-          </div>
-        </label>
-      </div>
+        <div className="sidebar-section" style={{ borderBottom: 'none' }}>
+          <div className="sidebar-section-title">Text transformations</div>
+          <ToggleSwitch label="Ignore case" checked={options.ignoreCase} onChange={() => updateOption('ignoreCase', !options.ignoreCase)} />
+          <ToggleSwitch label="Ignore whitespace" checked={options.ignoreWhitespace} onChange={() => updateOption('ignoreWhitespace', !options.ignoreWhitespace)} />
+          <ToggleSwitch label="Trim whitespace" checked={options.trimWhitespace} onChange={() => updateOption('trimWhitespace', !options.trimWhitespace)} />
+        </div>
       </div>
       
       {activeTab === 'history' && (
         <div className="history-tab" style={{ padding: '1rem', overflowY: 'auto', flex: 1 }}>
           {history.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {history.map(item => (
-                <div 
-                  key={item.id} 
-                  style={{ padding: '0.75rem', background: 'var(--bg-tertiary)', borderRadius: '0.375rem', cursor: 'pointer', border: '1px solid var(--border)' }}
-                  onClick={() => onRestore(item.originalValue, item.modifiedValue)}
-                  className="hover:border-accent hover:bg-accent-dim transition-all"
+            <>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+                <button 
+                  className="btn btn-ghost"
+                  onClick={clearHistory}
+                  style={{ fontSize: '0.75rem', color: 'var(--red)', padding: '0.25rem 0.5rem' }}
                 >
-                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Saved Diff</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(item.timestamp).toLocaleString()}</div>
-                  <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {item.originalValue}
+                  <Trash2 size={12} /> Clear All
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {history.map(item => (
+                  <div 
+                    key={item.id} 
+                    style={{ padding: '0.75rem', background: 'var(--bg-tertiary)', borderRadius: '0.375rem', cursor: 'pointer', border: '1px solid var(--border)', transition: 'border-color 150ms', position: 'relative' }}
+                    onClick={() => onRestore(item.originalValue, item.modifiedValue)}
+                    title="Click to restore this diff"
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>Saved Diff</div>
+                      <button 
+                        onClick={(e) => deleteHistoryItem(item.id, e)}
+                        style={{ padding: '2px', borderRadius: '4px', color: 'var(--text-muted)' }}
+                        title="Delete this entry"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{formatTime(item.timestamp)}</div>
+                    <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text-secondary)' }}>
+                      {item.preview || item.originalValue.substring(0, 80).replace(/\n/g, ' ')}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           ) : (
             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', marginTop: '2rem' }}>
               No history found.<br/><br/>Click the 'Save' button in your Diff output to track changes.

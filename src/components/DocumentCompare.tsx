@@ -1,90 +1,168 @@
-import React, { useState } from 'react';
-import { Upload, FileText } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Upload, FileText, X } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 import DiffEditor from './DiffEditor';
 import { type DiffOptions } from './Sidebar';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@\${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+// Use versioned CDN for stability
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 interface DocumentCompareProps {
   options: DiffOptions;
 }
 
+const ACCEPTED_TYPES = '.pdf,.docx,.txt,.md,.csv,.json,.xml,.html';
+
 const DocumentCompare: React.FC<DocumentCompareProps> = ({ options }) => {
   const [originalText, setOriginalText] = useState('');
   const [modifiedText, setModifiedText] = useState('');
+  const [originalFileName, setOriginalFileName] = useState('');
+  const [modifiedFileName, setModifiedFileName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, setter: (s: string) => void) => {
+  const parseFile = useCallback(async (file: File): Promise<string> => {
+    if (file.type === 'application/pdf') {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let text = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        text += textContent.items
+          .map((item: Record<string, unknown>) => (item as { str: string }).str)
+          .join(' ') + '\n';
+      }
+      return text.trim();
+    } else if (file.name.endsWith('.docx')) {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value;
+    } else {
+      return await file.text();
+    }
+  }, []);
+
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setter: (s: string) => void,
+    nameSetter: (s: string) => void
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setLoading(true);
+    setError(null);
     try {
-      if (file.type === 'application/pdf') {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        let text = '';
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          text += textContent.items.map((item: any) => item.str).join(' ') + '\n';
-        }
-        setter(text);
-      } else if (file.name.endsWith('.docx')) {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        setter(result.value);
-      } else {
-        const text = await file.text();
-        setter(text);
-      }
+      const text = await parseFile(file);
+      setter(text);
+      nameSetter(file.name);
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Could not parse "${file.name}": ${message}`);
       console.error('Failed to parse document:', err);
-      alert('Could not parse the document file.');
     }
     setLoading(false);
+    // Reset input so the same file can be re-selected
+    e.target.value = '';
   };
 
-  if (originalText && modifiedText) {
+  const handleClearOriginal = () => {
+    setOriginalText('');
+    setOriginalFileName('');
+    setShowDiff(false);
+  };
+
+  const handleClearModified = () => {
+    setModifiedText('');
+    setModifiedFileName('');
+    setShowDiff(false);
+  };
+
+  // Show diff editor when both files are loaded and comparing
+  if (showDiff && originalText && modifiedText) {
     return (
-      <DiffEditor 
-        options={options} 
-        originalValue={originalText}
-        modifiedValue={modifiedText}
-        onOriginalChange={setOriginalText}
-        onModifiedChange={setModifiedText}
-      />
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+        <div style={{ padding: '0.5rem 1rem', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+            <FileText size={18} style={{ color: 'var(--accent)' }} /> Document Compare
+          </div>
+          <button className="btn btn-ghost border" onClick={() => setShowDiff(false)}>
+            Back to Upload
+          </button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <DiffEditor 
+            options={options} 
+            originalValue={originalText}
+            modifiedValue={modifiedText}
+            onOriginalChange={setOriginalText}
+            onModifiedChange={setModifiedText}
+          />
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="input-area fade-in flex items-center justify-center p-8 bg-primary">
-      <div className="flex flex-col items-center max-w-2xl w-full">
-        <div className="flex items-center gap-3 mb-8">
-           <FileText size={28} className="text-accent" />
-           <h2 className="text-2xl font-semibold">Compare PDF & Word Documents</h2>
+    <div className="input-area fade-in" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem', background: 'var(--bg-primary)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '42rem', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem' }}>
+           <FileText size={28} style={{ color: 'var(--accent)' }} />
+           <h2 style={{ fontSize: '1.5rem', fontWeight: 600 }}>Compare PDF & Word Documents</h2>
         </div>
+
+        {error && (
+          <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', background: 'var(--red-dim)', border: '1px solid var(--red)', borderRadius: 'var(--radius-sm)', color: 'var(--red)', fontSize: '0.875rem', width: '100%' }}>
+            {error}
+          </div>
+        )}
         
-        <div className="flex w-full gap-4">
-          <label className="flex-1 border-2 border-dashed border-border rounded-lg p-10 flex flex-col items-center justify-center cursor-pointer hover:border-accent hover:bg-accent-dim transition-all">
-            <Upload size={32} className="text-muted mb-4" />
-            <span className="font-medium">Upload Original Document</span>
-            <span className="text-xs text-muted mt-2">.pdf, .docx, .txt</span>
-            <input type="file" accept=".pdf, .docx, .txt" hidden onChange={e => handleFileUpload(e, setOriginalText)} />
-            {originalText && <span className="mt-4 text-green font-bold">Loaded ✓</span>}
+        <div style={{ display: 'flex', width: '100%', gap: '1rem' }}>
+          <label style={{ flex: 1, border: '2px dashed var(--border)', borderRadius: '0.5rem', padding: '2.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 150ms', position: 'relative' }}>
+            <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
+            <span style={{ fontWeight: 500 }}>Upload Original Document</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>{ACCEPTED_TYPES}</span>
+            <input type="file" accept={ACCEPTED_TYPES} hidden onChange={e => handleFileUpload(e, setOriginalText, setOriginalFileName)} />
+            {originalFileName && (
+              <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ {originalFileName}</span>
+                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleClearOriginal(); }} style={{ padding: '2px', borderRadius: '50%', background: 'var(--bg-tertiary)' }} title="Clear">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
           </label>
           
-          <label className="flex-1 border-2 border-dashed border-border rounded-lg p-10 flex flex-col items-center justify-center cursor-pointer hover:border-accent hover:bg-accent-dim transition-all">
-            <Upload size={32} className="text-muted mb-4" />
-            <span className="font-medium">Upload Changed Document</span>
-            <span className="text-xs text-muted mt-2">.pdf, .docx, .txt</span>
-            <input type="file" accept=".pdf, .docx, .txt" hidden onChange={e => handleFileUpload(e, setModifiedText)} />
-            {modifiedText && <span className="mt-4 text-green font-bold">Loaded ✓</span>}
+          <label style={{ flex: 1, border: '2px dashed var(--border)', borderRadius: '0.5rem', padding: '2.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 150ms', position: 'relative' }}>
+            <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '1rem' }} />
+            <span style={{ fontWeight: 500 }}>Upload Changed Document</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>{ACCEPTED_TYPES}</span>
+            <input type="file" accept={ACCEPTED_TYPES} hidden onChange={e => handleFileUpload(e, setModifiedText, setModifiedFileName)} />
+            {modifiedFileName && (
+              <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ {modifiedFileName}</span>
+                <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleClearModified(); }} style={{ padding: '2px', borderRadius: '50%', background: 'var(--bg-tertiary)' }} title="Clear">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
           </label>
         </div>
-        {loading && <div className="mt-6 text-muted">Parsing files...</div>}
+
+        {loading && <div style={{ marginTop: '1.5rem', color: 'var(--text-muted)' }}>Parsing files...</div>}
+        
+        {originalText && modifiedText && !loading && (
+          <button 
+            className="find-diff-btn" 
+            onClick={() => setShowDiff(true)}
+            style={{ marginTop: '2rem' }}
+          >
+            COMPARE DOCUMENTS <FileText size={18} />
+          </button>
+        )}
       </div>
     </div>
   );

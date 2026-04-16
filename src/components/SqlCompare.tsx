@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import DiffEditor from './DiffEditor';
 import { type DiffOptions } from './Sidebar';
 import { Database, AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -7,51 +7,82 @@ interface SqlCompareProps {
   options: DiffOptions;
 }
 
+// SQL keywords that should start on a new line
+const SQL_NEWLINE_KEYWORDS = [
+  'SELECT', 'FROM', 'WHERE', 'AND', 'OR',
+  'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'OFFSET',
+  'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN', 'CROSS JOIN', 'JOIN',
+  'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE',
+  'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE',
+  'ON', 'USING', 'UNION', 'UNION ALL', 'EXCEPT', 'INTERSECT',
+  'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+  'WITH', 'AS',
+];
+
+// SQL statement keywords for validation
+const SQL_STATEMENT_STARTERS = [
+  'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE',
+  'DROP', 'ALTER', 'GRANT', 'REVOKE', 'TRUNCATE',
+  'MERGE', 'WITH', 'EXPLAIN', 'SHOW', 'DESCRIBE',
+  'USE', 'BEGIN', 'COMMIT', 'ROLLBACK', 'SET',
+];
+
+interface ValidationResult {
+  status: 'success' | 'warning' | 'error';
+  message: string;
+}
+
 const SqlCompare: React.FC<SqlCompareProps> = ({ options }) => {
   const [originalValue, setOriginalValue] = useState('');
   const [modifiedValue, setModifiedValue] = useState('');
-  const [validationResult, setValidationResult] = useState<{status: string, message: string} | null>(null);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
 
-  // Very basic SQL formatter block for client side since we don't have sql-formatter npm package
-  const basicSqlFormat = (sql: string) => {
-    let formatted = sql.replace(/\s+/g, ' ');
-    const keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE'];
+  const formatSql = useCallback((sql: string): string => {
+    if (!sql.trim()) return sql;
     
-    keywords.forEach(kw => {
-      const regex = new RegExp(`\\b${kw}\\b`, 'gi');
+    // Normalize whitespace (preserve within strings)
+    let formatted = sql.replace(/\s+/g, ' ').trim();
+    
+    // Sort keywords by length (longest first) to avoid partial replacements
+    const sortedKeywords = [...SQL_NEWLINE_KEYWORDS].sort((a, b) => b.length - a.length);
+    
+    sortedKeywords.forEach(kw => {
+      const regex = new RegExp(`\\b${kw.replace(/\s+/g, '\\s+')}\\b`, 'gi');
       formatted = formatted.replace(regex, `\n${kw.toUpperCase()}`);
     });
     
-    return formatted.replace(/^\n/, '').trim();
-  };
+    // Clean up: remove leading newline, collapse multiple newlines
+    return formatted
+      .replace(/^\n/, '')
+      .replace(/\n{2,}/g, '\n')
+      .trim();
+  }, []);
 
-  const checkBasicSyntax = (sql: string) => {
+  const checkSqlSyntax = useCallback((sql: string): boolean => {
     if (!sql.trim()) return true;
-    const upper = sql.toUpperCase();
-    if (!upper.includes('SELECT') && !upper.includes('INSERT') && !upper.includes('UPDATE') && !upper.includes('DELETE') && !upper.includes('CREATE') && !upper.includes('DROP') && !upper.includes('ALTER')) {
-      return false; // Very basic check
-    }
-    return true;
-  };
+    const upper = sql.trim().toUpperCase();
+    return SQL_STATEMENT_STARTERS.some(kw => upper.includes(kw));
+  }, []);
 
   const handleFormat = () => {
-    let error = '';
+    const warnings: string[] = [];
 
-    if (!checkBasicSyntax(originalValue) && originalValue.trim()) {
-      error += 'Original input does not look like valid SQL. ';
+    if (originalValue.trim() && !checkSqlSyntax(originalValue)) {
+      warnings.push('Original input does not appear to be valid SQL.');
     }
-    if (!checkBasicSyntax(modifiedValue) && modifiedValue.trim()) {
-      error += 'Changed input does not look like valid SQL.';
+    if (modifiedValue.trim() && !checkSqlSyntax(modifiedValue)) {
+      warnings.push('Changed input does not appear to be valid SQL.');
     }
 
-    if (error) {
-       setValidationResult({ status: 'warning', message: error });
+    if (warnings.length > 0) {
+       setValidationResult({ status: 'warning', message: warnings.join(' ') });
     } else {
        setValidationResult({ status: 'success', message: 'SQL valid. Formatting applied.' });
     }
 
-    if (originalValue.trim()) setOriginalValue(basicSqlFormat(originalValue));
-    if (modifiedValue.trim()) setModifiedValue(basicSqlFormat(modifiedValue));
+    // Always apply formatting even with warnings
+    if (originalValue.trim()) setOriginalValue(formatSql(originalValue));
+    if (modifiedValue.trim()) setModifiedValue(formatSql(modifiedValue));
   };
 
   const overrideOptions = { ...options, syntax: 'sql' };
@@ -60,12 +91,22 @@ const SqlCompare: React.FC<SqlCompareProps> = ({ options }) => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
       <div style={{ padding: '0.75rem 1rem', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-          <Database size={18} className="text-accent" /> SQL Compare & Checker
+          <Database size={18} style={{ color: 'var(--accent)' }} /> SQL Compare & Checker
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
            {validationResult && (
-            <div style={{ fontSize: '0.8125rem', color: validationResult.status === 'warning' ? 'var(--yellow)' : 'var(--green)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              {validationResult.status === 'warning' ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+            <div style={{ 
+              fontSize: '0.8125rem', 
+              color: validationResult.status === 'warning' ? 'var(--yellow)' : validationResult.status === 'error' ? 'var(--red)' : 'var(--green)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '4px',
+              maxWidth: '400px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}>
+              {validationResult.status === 'success' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
               {validationResult.message}
             </div>
           )}
